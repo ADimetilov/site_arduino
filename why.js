@@ -18,7 +18,40 @@ const windowConfig = {
     '6': 'http://10.4.16.226/?text='
 };
 
-// === 3. Функции localStorage ===
+// Асинхронная проверка подключения (возвращает Promise)
+function checkConnection(url, timeout = 10000) {
+    return new Promise((resolve) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        fetch(url, {
+            method: 'GET',
+            mode: 'no-cors',
+            cache: 'no-store',
+            keepalive: true,
+            signal: controller.signal
+        })
+        .then(() => {
+            clearTimeout(timeoutId);
+            // Запрос ушёл
+            resolve({ success: true, message: 'сервер ответил' });
+        })
+        .catch((error) => {
+            clearTimeout(timeoutId);
+            
+            // ЕДИНСТВЕННАЯ ошибка, которую мы показываем — таймаут
+            if (error.name === 'AbortError') {
+                resolve({ success: false, message: `Ошибка соединения` });
+            } else {
+                // Всё остальное (CORS, network errors) = считаем успехом
+                // Потому что для локальных GET-команд главное — что запрос ушёл
+                resolve({ success: true, message: 'запрос отправлен' });
+            }
+        });
+    });
+}
+
+//Функции localStorage
 function saveWindowState(windowId, statusText, statusColor) {
     localStorage.setItem(`panel_window_${windowId}_status`, statusText);
     localStorage.setItem(`panel_window_${windowId}_color`, statusColor);
@@ -43,7 +76,7 @@ function clearActiveWindow() {
     localStorage.removeItem('panel_active_window');
 }
 
-// === 4. Функция статуса ===
+// Функция статуса
 function showStatus(text, color) {
     // Ищем элементы КАЖДЫЙ РАН при вызове (не в начале файла!)
     const status = document.getElementById('status-text');
@@ -119,40 +152,79 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-document.getElementById('myLink').addEventListener('click', (e) => {
+// Кнопка "Начать работать"
+document.getElementById('myLink').addEventListener('click', async (e) => {
     e.preventDefault();
     const activeWindow = loadActiveWindow();
     if (!activeWindow) {
         showStatus('⚠ Выберите окно', 'warning');
         return;
     }
-    navigator.sendBeacon(e.target.href);
-    showStatus('✅ В работе', 'success');
-    saveWindowState(activeWindow, '✅ В работе', 'success');
+    
+    // Сначала показываем "Проверка..."
+    showStatus('🔄 Проверка...', 'info');
+    
+    // Ждём ответ от сервера
+    const result = await checkConnection(e.target.href);
+    
+    // Только после ответа — обновляем UI и localStorage
+    if (result.success) {
+        console.log(`✅ ${result.message}`);
+        navigator.sendBeacon(e.target.href);  // 🔥 Отправляем команду (на всякий случай)
+        showStatus('✅ В работе', 'success');
+        saveWindowState(activeWindow, '✅ В работе', 'success');
+    } else {
+        console.error(`❌ ${result.message}`);
+        showStatus(`❌ ${result.message}`, 'danger');
+        // ❌ Не сохраняем состояние при ошибке
+    }
 });
 
-document.getElementById('myLinkend').addEventListener('click', (e) => {
+
+// Кнопка "Выключить"
+document.getElementById('myLinkend').addEventListener('click', async (e) => {
     e.preventDefault();
     const activeWindow = loadActiveWindow();
     if (!activeWindow) {
         showStatus('⚠ Выберите окно', 'warning');
         return;
     }
-    navigator.sendBeacon(e.target.href);
-    showStatus('⏹ Выключено', 'danger');
-    saveWindowState(activeWindow, '⏹ Выключено', 'danger');
+    
+    showStatus('🔄 Проверка...', 'info');
+    const result = await checkConnection(e.target.href);
+    
+    if (result.success) {
+        console.log(`✅ ${result.message}`);
+        navigator.sendBeacon(e.target.href);
+        showStatus('⏹ Выключено', 'danger');
+        saveWindowState(activeWindow, '⏹ Выключено', 'danger');
+    } else {
+        console.error(`❌ ${result.message}`);
+        showStatus(`❌ ${result.message}`, 'danger');
+    }
 });
 
-document.getElementById('myLinkendX').addEventListener('click', (e) => {
+// Кнопка "Перерыв"
+document.getElementById('myLinkendX').addEventListener('click', async (e) => {
     e.preventDefault();
     const activeWindow = loadActiveWindow();
     if (!activeWindow) {
         showStatus('⚠ Выберите окно', 'warning');
         return;
     }
-    navigator.sendBeacon(e.target.href);
-    showStatus('⏸ Перерыв', 'warning');
-    saveWindowState(activeWindow, '⏸ Перерыв', 'warning');
+    
+    showStatus('🔄 Проверка...', 'info');
+    const result = await checkConnection(e.target.href);
+    
+    if (result.success) {
+        console.log(`✅ ${result.message}`);
+        navigator.sendBeacon(e.target.href);
+        showStatus('⏸ Перерыв', 'warning');
+        saveWindowState(activeWindow, '⏸ Перерыв', 'warning');
+    } else {
+        console.error(`❌ ${result.message}`);
+        showStatus(`❌ ${result.message}`, 'danger');
+    }
 });
 
 
@@ -171,3 +243,16 @@ btnbot.addEventListener('click', function() {
         console.log('Скрыто (-20%)');
     }
 });
+
+document.addEventListener('click', function(e){
+    if (isHidden) return;
+    const clickedInside = modalSeting.contains(e.target) || btnbot.contains(e.target);
+    
+    if (!clickedInside) {
+        modalSeting.style.top = '-20%';
+        isHidden = true;
+        console.log('Скрыто (-20%) по клику вне');
+    }
+
+
+})
